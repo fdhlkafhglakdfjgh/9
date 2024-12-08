@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Праздничная сцена</title>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <!-- Добавляем OrbitControls для управления камерой мышью -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            height: 100vh;
+            background: radial-gradient(ellipse at center, #001a4d, #000033);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        #status {
+            position: absolute;
+            top: 10px;
+            font-size: 1.5em;
+            color: white;
+            z-index: 100;
+        }
+        
+        .snowflake {
+            position: absolute;
+            color: white;
+            font-size: 1em;
+            user-select: none;
+            pointer-events: none;
+            animation: fall linear infinite;
+        }
+        
+        @keyframes fall {
+            0% {
+                transform: translateY(-100vh) rotate(0deg);
+            }
+            100% {
+                transform: translateY(100vh) rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <p id="status">Загрузка...</p>
+
+    <script>
+        // Снежинки
+        function createSnowflake() {
+            const snowflake = document.createElement('div');
+            snowflake.className = 'snowflake';
+            snowflake.textContent = '❄';
+            snowflake.style.left = Math.random() * 100 + 'vw';
+            // Увеличили время падения снежинок (было 3+2, стало 5+3)
+            snowflake.style.animationDuration = Math.random() * 5 + 3 + 's';
+            snowflake.style.opacity = Math.random();
+            document.body.appendChild(snowflake);
+
+            snowflake.addEventListener('animationend', () => {
+                snowflake.remove();
+            });
+        }
+
+        // Уменьшили частоту создания снежинок (было 100мс, стало 150мс)
+        setInterval(createSnowflake, 150);
+
+        // Three.js сцена
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0);
+        document.body.appendChild(renderer.domElement);
+
+        // Изменили начальную позицию камеры для лучшего обзора
+        camera.position.z = 8;
+        camera.position.y = 2;
+
+        // Добавляем OrbitControls для управления мышью
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // Плавное движение камеры
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 3; // Минимальное расстояние зума
+        controls.maxDistance = 15; // Максимальное расстояние зума
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(10, 10, 10);
+        scene.add(directionalLight);
+
+        let tree;
+        const loader = new THREE.GLTFLoader();
+        loader.load(
+            'tree_model.glb',
+            function (gltf) {
+                tree = gltf.scene;
+                // Увеличили масштаб модели (было 2, стало 3)
+                tree.scale.set(3, 3, 3);
+                scene.add(tree);
+                document.getElementById('status').innerText = "Улыбнитесь, чтобы включить гирлянды!";
+            },
+            undefined,
+            function (error) {
+                console.error("Ошибка загрузки модели:", error);
+                document.getElementById('status').innerText = "Ошибка загрузки модели.";
+            }
+        );
+
+        let isSmiling = false;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (tree && isSmiling) {
+                // Увеличили скорость вращения (было 0.01, стало 0.02)
+                tree.rotation.y += 0.02;
+            }
+            // Обновляем контроллеры в каждом кадре для плавности
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                videoElement.srcObject = stream;
+                return new Promise(resolve => videoElement.onloadedmetadata = () => resolve(videoElement));
+            } catch (error) {
+                console.error("Ошибка при доступе к камере:", error);
+                document.getElementById('status').innerText = "Ошибка доступа к камере.";
+            }
+        }
+
+        const videoElement = document.createElement("video");
+        videoElement.width = 640;
+        videoElement.height = 480;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.style.display = "none";
+        document.body.appendChild(videoElement);
+
+        async function startFaceMeshDetection() {
+            const faceMesh = new FaceMesh({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+            });
+
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            faceMesh.onResults(onResults);
+
+            await setupCamera();
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => await faceMesh.send({ image: videoElement }),
+                width: 640,
+                height: 480
+            });
+
+            camera.start();
+        }
+
+        function calculateSmile(landmarks) {
+            const leftMouth = landmarks[61];
+            const rightMouth = landmarks[291];
+            const topMouth = landmarks[13];
+            const bottomMouth = landmarks[14];
+
+            const mouthWidth = Math.hypot(rightMouth.x - leftMouth.x, rightMouth.y - leftMouth.y);
+            const mouthHeight = Math.hypot(bottomMouth.x - topMouth.x, bottomMouth.y - topMouth.y);
+
+            return mouthHeight / mouthWidth > 0.2;
+        }
+
+        function onResults(results) {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const faceLandmarks = results.multiFaceLandmarks[0];
+                isSmiling = calculateSmile(faceLandmarks);
+                document.getElementById('status').innerText = isSmiling ? "Вы улыбаетесь!" : "Улыбнитесь, чтобы вращать ёлку!";
+            }
+        }
+
+        startFaceMeshDetection().catch(error => console.error("Ошибка запуска FaceMesh:", error));
+
+        // Обработчик изменения размера окна
+        window.addEventListener('resize', () => {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+        });
+    </script>
+</body>
+</html>
